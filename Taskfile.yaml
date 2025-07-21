@@ -1,0 +1,166 @@
+version: '3'
+
+vars:
+  BUILD_DIR: ./build
+  GO_VERSION: 1.24.4
+  
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  clean:
+    desc: Clean build artifacts and test cache
+    cmds:
+      - rm -rf {{.BUILD_DIR}}
+      - go clean -testcache
+      - go clean -modcache
+
+  deps:
+    desc: Download and verify dependencies
+    cmds:
+      - go mod download
+      - go mod verify
+      - go mod tidy
+
+  fmt:
+    desc: Format Go code
+    cmds:
+      - go fmt ./...
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test -v ./...
+
+  test-coverage:
+    desc: Run tests with coverage report
+    cmds:
+      - go test -v -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
+
+  build-excel:
+    desc: Build the Excel MCP server
+    deps: [fmt, vet]
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -o {{.BUILD_DIR}}/excel-mcp ./cmd/excel-mcp
+    generates:
+      - "{{.BUILD_DIR}}/excel-mcp"
+
+  build-fs:
+    desc: Build the Filesystem MCP server
+    deps: [fmt, vet]  
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -o {{.BUILD_DIR}}/fs-mcp ./cmd/fs-mcp
+    generates:
+      - "{{.BUILD_DIR}}/fs-mcp"
+
+  build:
+    desc: Build both MCP servers
+    deps: [build-excel, build-fs]
+
+  build-release:
+    desc: Build release binaries for multiple platforms
+    deps: [fmt, vet, test]
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}/release
+      # Excel MCP server
+      - GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/excel-mcp-linux-amd64 ./cmd/excel-mcp
+      - GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/excel-mcp-darwin-amd64 ./cmd/excel-mcp
+      - GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/excel-mcp-darwin-arm64 ./cmd/excel-mcp
+      - GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/excel-mcp-windows-amd64.exe ./cmd/excel-mcp
+      # Filesystem MCP server
+      - GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/fs-mcp-linux-amd64 ./cmd/fs-mcp
+      - GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/fs-mcp-darwin-amd64 ./cmd/fs-mcp
+      - GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/fs-mcp-darwin-arm64 ./cmd/fs-mcp
+      - GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/fs-mcp-windows-amd64.exe ./cmd/fs-mcp
+
+  install-excel:
+    desc: Install Excel MCP server binary to $GOPATH/bin
+    deps: [build-excel]
+    cmds:
+      - go install ./cmd/excel-mcp
+
+  install-fs:
+    desc: Install Filesystem MCP server binary to $GOPATH/bin  
+    deps: [build-fs]
+    cmds:
+      - go install ./cmd/fs-mcp
+
+  install:
+    desc: Install both MCP server binaries
+    deps: [install-excel, install-fs]
+
+  run-excel:
+    desc: Run the Excel MCP server
+    deps: [build-excel]
+    cmds:
+      - "{{.BUILD_DIR}}/excel-mcp"
+
+  run-fs:
+    desc: Run the Filesystem MCP server with current directory as base
+    deps: [build-fs]
+    cmds:
+      - "{{.BUILD_DIR}}/fs-mcp ."
+
+  dev-excel:
+    desc: Run Excel MCP server in development mode
+    cmds:
+      - go run ./cmd/excel-mcp
+
+  dev-fs:
+    desc: Run Filesystem MCP server in development mode
+    cmds:
+      - go run ./cmd/fs-mcp .
+
+  check:
+    desc: Run all checks (format, vet, test)
+    deps: [fmt, vet, test]
+
+  benchmark:
+    desc: Run benchmarks
+    cmds:
+      - go test -bench=. -benchmem ./...
+
+  mod-update:
+    desc: Update all dependencies to latest versions
+    cmds:
+      - go get -u ./...
+      - go mod tidy
+
+  help:
+    desc: Show detailed help for common tasks
+    cmds:
+      - echo "My MCP Servers - Available Tasks:"
+      - echo ""
+      - echo "Building:"
+      - echo "  task build         - Build both MCP servers"
+      - echo "  task build-excel   - Build only Excel MCP server"
+      - echo "  task build-fs      - Build only Filesystem MCP server"
+      - echo ""
+      - echo "Development:"
+      - echo "  task dev-excel     - Run Excel server in development mode"
+      - echo "  task dev-fs        - Run Filesystem server in development mode"
+      - echo "  task run-excel     - Build and run Excel server"
+      - echo "  task run-fs        - Build and run Filesystem server"
+      - echo ""
+      - echo "Testing:"
+      - echo "  task test          - Run all tests"
+      - echo "  task test-coverage - Run tests with coverage report"
+      - echo "  task check         - Run format, vet, and test"
+      - echo ""
+      - echo "Quality:"
+      - echo "  task fmt           - Format code"
+      - echo "  task vet           - Run go vet"
+      - echo ""
+      - echo "Release:"
+      - echo "  task build-release - Build for multiple platforms"
+      - echo "  task install       - Install both binaries to $GOPATH/bin"
