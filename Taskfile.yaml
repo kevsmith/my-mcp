@@ -63,9 +63,18 @@ tasks:
     generates:
       - "{{.BUILD_DIR}}/fs-mcp"
 
+  build-document:
+    desc: Build the Document MCP server
+    deps: [fmt, vet]
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -o {{.BUILD_DIR}}/document-mcp ./cmd/document-mcp
+    generates:
+      - "{{.BUILD_DIR}}/document-mcp"
+
   build:
-    desc: Build both MCP servers
-    deps: [build-excel, build-fs]
+    desc: Build all MCP servers
+    deps: [build-excel, build-fs, build-document]
 
   build-release:
     desc: Build release binaries for multiple platforms
@@ -82,6 +91,11 @@ tasks:
       - GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/fs-mcp-darwin-amd64 ./cmd/fs-mcp
       - GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/fs-mcp-darwin-arm64 ./cmd/fs-mcp
       - GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/fs-mcp-windows-amd64.exe ./cmd/fs-mcp
+      # Document MCP server
+      - GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/document-mcp-linux-amd64 ./cmd/document-mcp
+      - GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/document-mcp-darwin-amd64 ./cmd/document-mcp
+      - GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/document-mcp-darwin-arm64 ./cmd/document-mcp
+      - GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/document-mcp-windows-amd64.exe ./cmd/document-mcp
 
   install-excel:
     desc: Install Excel MCP server binary to $GOPATH/bin
@@ -95,9 +109,15 @@ tasks:
     cmds:
       - go install ./cmd/fs-mcp
 
+  install-document:
+    desc: Install Document MCP server binary to $GOPATH/bin
+    deps: [build-document]
+    cmds:
+      - go install ./cmd/document-mcp
+
   install:
-    desc: Install both MCP server binaries
-    deps: [install-excel, install-fs]
+    desc: Install all MCP server binaries
+    deps: [install-excel, install-fs, install-document]
 
   run-excel:
     desc: Run the Excel MCP server
@@ -111,6 +131,12 @@ tasks:
     cmds:
       - "{{.BUILD_DIR}}/fs-mcp ."
 
+  run-document:
+    desc: Run the Document MCP server
+    deps: [build-document]
+    cmds:
+      - "{{.BUILD_DIR}}/document-mcp"
+
   dev-excel:
     desc: Run Excel MCP server in development mode
     cmds:
@@ -120,6 +146,11 @@ tasks:
     desc: Run Filesystem MCP server in development mode
     cmds:
       - go run ./cmd/fs-mcp .
+
+  dev-document:
+    desc: Run Document MCP server in development mode
+    cmds:
+      - go run ./cmd/document-mcp
 
   check:
     desc: Run all checks (format, vet, test)
@@ -142,15 +173,18 @@ tasks:
       - echo "My MCP Servers - Available Tasks:"
       - echo ""
       - echo "Building:"
-      - echo "  task build         - Build both MCP servers"
+      - echo "  task build         - Build all MCP servers"
       - echo "  task build-excel   - Build only Excel MCP server"
       - echo "  task build-fs      - Build only Filesystem MCP server"
+      - echo "  task build-document - Build only Document MCP server"
       - echo ""
       - echo "Development:"
       - echo "  task dev-excel     - Run Excel server in development mode"
       - echo "  task dev-fs        - Run Filesystem server in development mode"
+      - echo "  task dev-document  - Run Document server in development mode"
       - echo "  task run-excel     - Build and run Excel server"
       - echo "  task run-fs        - Build and run Filesystem server"
+      - echo "  task run-document  - Build and run Document server"
       - echo ""
       - echo "Testing:"
       - echo "  task test          - Run all tests"
@@ -163,4 +197,4 @@ tasks:
       - echo ""
       - echo "Release:"
       - echo "  task build-release - Build for multiple platforms"
-      - echo "  task install       - Install both binaries to $GOPATH/bin"
+      - echo "  task install       - Install all binaries to $GOPATH/bin"
