@@ -8,6 +8,48 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// Navigation handlers
+func ChangeDirectoryHandler(handler *Handler) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var args ChangeDirectoryArgs
+		argBytes, err := json.Marshal(request.Params.Arguments)
+		if err != nil {
+			return mcp.NewToolResultError("Failed to marshal arguments"), nil
+		}
+		if err := json.Unmarshal(argBytes, &args); err != nil {
+			return mcp.NewToolResultError("Invalid arguments"), nil
+		}
+
+		err = handler.ChangeDirectory(args.Path)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to change directory: %v", err)), nil
+		}
+
+		return mcp.NewToolResultText(fmt.Sprintf("Changed directory to: %s", handler.GetCurrentDirectory())), nil
+	}
+}
+
+func GetCurrentDirectoryHandler(handler *Handler) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		currentDir := handler.GetCurrentDirectory()
+		return mcp.NewToolResultText(currentDir), nil
+	}
+}
+
+func GetDirectoryInfoHandler(handler *Handler) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		dirInfo := handler.GetDirectoryInfo()
+
+		content, err := json.Marshal(dirInfo)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize directory info: %v", err)), nil
+		}
+
+		return mcp.NewToolResultText(string(content)), nil
+	}
+}
+
+// File operation handlers
 func ListDirectoryHandler(handler *Handler) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var args ListDirectoryArgs
@@ -44,12 +86,12 @@ func GlobHandler(handler *Handler) func(ctx context.Context, request mcp.CallToo
 			return mcp.NewToolResultError("Invalid arguments"), nil
 		}
 
-		files, err := handler.Glob(args.Pattern)
+		result, err := handler.Glob(args.Pattern)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to glob pattern: %v", err)), nil
 		}
 
-		content, err := json.Marshal(files)
+		content, err := json.Marshal(result)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize results: %v", err)), nil
 		}
@@ -100,25 +142,5 @@ func ReadFileHandler(handler *Handler) func(ctx context.Context, request mcp.Cal
 		}
 
 		return mcp.NewToolResultText(content), nil
-	}
-}
-
-func GetAbsolutePathHandler(handler *Handler) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		var args GetAbsolutePathArgs
-		argBytes, err := json.Marshal(request.Params.Arguments)
-		if err != nil {
-			return mcp.NewToolResultError("Failed to marshal arguments"), nil
-		}
-		if err := json.Unmarshal(argBytes, &args); err != nil {
-			return mcp.NewToolResultError("Invalid arguments"), nil
-		}
-
-		absPath, err := handler.GetAbsolutePath(args.Path)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to get absolute path: %v", err)), nil
-		}
-
-		return mcp.NewToolResultText(absPath), nil
 	}
 }

@@ -10,21 +10,145 @@ import (
 )
 
 type Handler struct {
-	basePath string
+	allowedRoots []string // Pre-cleaned absolute paths
+	currentWD    string   // Current working directory (absolute)
 }
 
-func NewHandler(basePath string) *Handler {
-	return &Handler{basePath: basePath}
-}
-
-func (fh *Handler) ListDirectory(path string) ([]FileInfo, error) {
-	fullPath := filepath.Join(fh.basePath, path)
-
-	if !fh.isPathSafe(fullPath) {
-		return nil, fmt.Errorf("access denied: path outside allowed directory")
+func NewHandler(allowedRoots []string) (*Handler, error) {
+	if len(allowedRoots) == 0 {
+		return nil, fmt.Errorf("at least one allowed root directory is required")
 	}
 
-	entries, err := os.ReadDir(fullPath)
+	// Clean and validate all allowed roots
+	var cleanRoots []string
+	for _, root := range allowedRoots {
+		absRoot, err := filepath.Abs(filepath.Clean(root))
+		if err != nil {
+			return nil, fmt.Errorf("invalid root path %s: %w", root, err)
+		}
+
+		// Verify root exists and is a directory
+		info, err := os.Stat(absRoot)
+		if err != nil {
+			return nil, fmt.Errorf("root path %s does not exist: %w", absRoot, err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("root path %s is not a directory", absRoot)
+		}
+
+		cleanRoots = append(cleanRoots, absRoot)
+	}
+
+	// Start in the first allowed root
+	initialWD := cleanRoots[0]
+
+	return &Handler{
+		allowedRoots: cleanRoots,
+		currentWD:    initialWD,
+	}, nil
+}
+
+// Core security function - resolves and validates any path
+func (h *Handler) resolvePath(inputPath string) (string, error) {
+	var resolvedPath string
+
+	if filepath.IsAbs(inputPath) {
+		// Absolute path - use as-is but validate
+		resolvedPath = inputPath
+	} else {
+		// Relative path - resolve from CWD
+		resolvedPath = filepath.Join(h.currentWD, inputPath)
+	}
+
+	// Critical: Clean the path to resolve all ./ ../ shenanigans
+	cleanPath := filepath.Clean(resolvedPath)
+
+	// Make it absolute to handle any remaining edge cases
+	absPath, err := filepath.Abs(cleanPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
+
+	// Validate against allowed roots
+	if !h.isPathAllowed(absPath) {
+		return "", fmt.Errorf("access denied: path outside allowed roots")
+	}
+
+	return absPath, nil
+}
+
+func (h *Handler) isPathAllowed(path string) bool {
+	cleanPath := filepath.Clean(path)
+
+	for _, root := range h.allowedRoots {
+		cleanRoot := filepath.Clean(root)
+
+		// Path must be inside or equal to an allowed root
+		if strings.HasPrefix(cleanPath, cleanRoot+string(filepath.Separator)) ||
+			cleanPath == cleanRoot {
+			return true
+		}
+	}
+	return false
+}
+
+// Get relative path for display purposes
+func (h *Handler) getRelativePath(absPath string) string {
+	relPath, err := filepath.Rel(h.currentWD, absPath)
+	if err != nil {
+		return absPath // Fallback to absolute if relative fails
+	}
+	return relPath
+}
+
+// Navigation functions
+func (h *Handler) ChangeDirectory(path string) error {
+	// Resolve the new directory path
+	newWD, err := h.resolvePath(path)
+	if err != nil {
+		return err
+	}
+
+	// Verify it's actually a directory
+	info, err := os.Stat(newWD)
+	if err != nil {
+		return fmt.Errorf("directory does not exist: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("not a directory: %s", newWD)
+	}
+
+	// Safe to change
+	h.currentWD = newWD
+	return nil
+}
+
+func (h *Handler) GetCurrentDirectory() string {
+	return h.currentWD
+}
+
+func (h *Handler) GetDirectoryInfo() DirectoryInfo {
+	return DirectoryInfo{
+		CurrentDirectory: h.currentWD,
+		AllowedRoots:     h.allowedRoots,
+	}
+}
+
+// File operations with new logic
+func (h *Handler) ListDirectory(path *string) ([]FileInfo, error) {
+	var targetPath string
+	if path != nil && *path != "" {
+		resolvedPath, err := h.resolvePath(*path)
+		if err != nil {
+			return nil, err
+		}
+		targetPath = resolvedPath
+	} else {
+		// Default to current working directory
+		targetPath = h.currentWD
+	}
+
+	entries, err := os.ReadDir(targetPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read directory: %w", err)
 	}
@@ -36,12 +160,14 @@ func (fh *Handler) ListDirectory(path string) ([]FileInfo, error) {
 			continue
 		}
 
+		absPath := filepath.Join(targetPath, entry.Name())
 		fileInfo := FileInfo{
-			Name:     entry.Name(),
-			Path:     filepath.Join(path, entry.Name()),
-			IsDir:    entry.IsDir(),
-			Size:     info.Size(),
-			Modified: info.ModTime(),
+			Name:         entry.Name(),
+			Path:         absPath,
+			RelativePath: h.getRelativePath(absPath),
+			IsDir:        entry.IsDir(),
+			Size:         info.Size(),
+			Modified:     info.ModTime(),
 		}
 
 		if stat := info.Sys(); stat != nil {
@@ -61,8 +187,14 @@ func (fh *Handler) ListDirectory(path string) ([]FileInfo, error) {
 	return files, nil
 }
 
-func (fh *Handler) Glob(pattern string) ([]FileInfo, error) {
-	fullPattern := filepath.Join(fh.basePath, pattern)
+func (h *Handler) Glob(pattern string) (*GlobResult, error) {
+	// Resolve pattern from current working directory
+	var fullPattern string
+	if filepath.IsAbs(pattern) {
+		fullPattern = pattern
+	} else {
+		fullPattern = filepath.Join(h.currentWD, pattern)
+	}
 
 	matches, err := filepath.Glob(fullPattern)
 	if err != nil {
@@ -71,8 +203,8 @@ func (fh *Handler) Glob(pattern string) ([]FileInfo, error) {
 
 	var files []FileInfo
 	for _, match := range matches {
-		if !fh.isPathSafe(match) {
-			continue
+		if !h.isPathAllowed(match) {
+			continue // Skip matches outside allowed roots
 		}
 
 		info, err := os.Stat(match)
@@ -80,17 +212,13 @@ func (fh *Handler) Glob(pattern string) ([]FileInfo, error) {
 			continue
 		}
 
-		relPath, err := filepath.Rel(fh.basePath, match)
-		if err != nil {
-			continue
-		}
-
 		fileInfo := FileInfo{
-			Name:     filepath.Base(match),
-			Path:     relPath,
-			IsDir:    info.IsDir(),
-			Size:     info.Size(),
-			Modified: info.ModTime(),
+			Name:         filepath.Base(match),
+			Path:         match,
+			RelativePath: h.getRelativePath(match),
+			IsDir:        info.IsDir(),
+			Size:         info.Size(),
+			Modified:     info.ModTime(),
 		}
 
 		if stat := info.Sys(); stat != nil {
@@ -104,14 +232,16 @@ func (fh *Handler) Glob(pattern string) ([]FileInfo, error) {
 		return files[i].Path < files[j].Path
 	})
 
-	return files, nil
+	return &GlobResult{
+		Pattern: pattern,
+		Matches: files,
+	}, nil
 }
 
-func (fh *Handler) GetFileInfo(path string) (*FileInfo, error) {
-	fullPath := filepath.Join(fh.basePath, path)
-
-	if !fh.isPathSafe(fullPath) {
-		return nil, fmt.Errorf("access denied: path outside allowed directory")
+func (h *Handler) GetFileInfo(path string) (*FileInfo, error) {
+	fullPath, err := h.resolvePath(path)
+	if err != nil {
+		return nil, err
 	}
 
 	info, err := os.Stat(fullPath)
@@ -120,11 +250,12 @@ func (fh *Handler) GetFileInfo(path string) (*FileInfo, error) {
 	}
 
 	fileInfo := &FileInfo{
-		Name:     filepath.Base(path),
-		Path:     path,
-		IsDir:    info.IsDir(),
-		Size:     info.Size(),
-		Modified: info.ModTime(),
+		Name:         filepath.Base(fullPath),
+		Path:         fullPath,
+		RelativePath: h.getRelativePath(fullPath),
+		IsDir:        info.IsDir(),
+		Size:         info.Size(),
+		Modified:     info.ModTime(),
 	}
 
 	if stat := info.Sys(); stat != nil {
@@ -134,11 +265,10 @@ func (fh *Handler) GetFileInfo(path string) (*FileInfo, error) {
 	return fileInfo, nil
 }
 
-func (fh *Handler) ReadFile(path string) (string, error) {
-	fullPath := filepath.Join(fh.basePath, path)
-
-	if !fh.isPathSafe(fullPath) {
-		return "", fmt.Errorf("access denied: path outside allowed directory")
+func (h *Handler) ReadFile(path string) (string, error) {
+	fullPath, err := h.resolvePath(path)
+	if err != nil {
+		return "", err
 	}
 
 	file, err := os.Open(fullPath)
@@ -162,32 +292,4 @@ func (fh *Handler) ReadFile(path string) (string, error) {
 	}
 
 	return string(content), nil
-}
-
-func (fh *Handler) GetAbsolutePath(path string) (string, error) {
-	fullPath := filepath.Join(fh.basePath, path)
-
-	if !fh.isPathSafe(fullPath) {
-		return "", fmt.Errorf("access denied: path outside allowed directory")
-	}
-
-	_, err := os.Stat(fullPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to access path: %w", err)
-	}
-
-	absPath, err := filepath.Abs(fullPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to get absolute path: %w", err)
-	}
-
-	return absPath, nil
-}
-
-func (fh *Handler) isPathSafe(path string) bool {
-	cleanPath := filepath.Clean(path)
-	cleanBase := filepath.Clean(fh.basePath)
-
-	return strings.HasPrefix(cleanPath, cleanBase+string(filepath.Separator)) ||
-		cleanPath == cleanBase
 }

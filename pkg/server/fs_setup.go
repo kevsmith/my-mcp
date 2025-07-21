@@ -2,47 +2,39 @@ package server
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/kevsmith/my-mcp/pkg/filesystem"
 	"github.com/mark3labs/mcp-go/server"
 )
 
-func NewMCPServer(basePath string) (*server.MCPServer, error) {
-	if _, err := os.Stat(basePath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("base directory does not exist: %s", basePath)
+func NewMCPServer(allowedRoots []string) (*server.MCPServer, error) {
+	if len(allowedRoots) == 0 {
+		return nil, fmt.Errorf("at least one allowed root directory is required")
 	}
 
-	handler := filesystem.NewHandler(basePath)
+	handler, err := filesystem.NewHandler(allowedRoots)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create filesystem handler: %w", err)
+	}
 
 	s := server.NewMCPServer(
 		"fs-mcp",
-		"1.0.0",
+		"2.0.0", // Version bump for new interface
 		server.WithLogging(),
 	)
 
 	toolDefinitions := filesystem.GetToolDefinitions()
-	toolHandlers := []func(){
-		func() {
-			s.AddTool(toolDefinitions[0], filesystem.ListDirectoryHandler(handler))
-		},
-		func() {
-			s.AddTool(toolDefinitions[1], filesystem.GlobHandler(handler))
-		},
-		func() {
-			s.AddTool(toolDefinitions[2], filesystem.GetFileInfoHandler(handler))
-		},
-		func() {
-			s.AddTool(toolDefinitions[3], filesystem.ReadFileHandler(handler))
-		},
-		func() {
-			s.AddTool(toolDefinitions[4], filesystem.GetAbsolutePathHandler(handler))
-		},
-	}
 
-	for _, addTool := range toolHandlers {
-		addTool()
-	}
+	// Navigation tools
+	s.AddTool(toolDefinitions[0], filesystem.ChangeDirectoryHandler(handler))     // change_directory
+	s.AddTool(toolDefinitions[1], filesystem.GetCurrentDirectoryHandler(handler)) // get_current_directory
+	s.AddTool(toolDefinitions[2], filesystem.GetDirectoryInfoHandler(handler))    // get_directory_info
+
+	// File operation tools
+	s.AddTool(toolDefinitions[3], filesystem.ListDirectoryHandler(handler)) // list_directory
+	s.AddTool(toolDefinitions[4], filesystem.ReadFileHandler(handler))      // read_file
+	s.AddTool(toolDefinitions[5], filesystem.GetFileInfoHandler(handler))   // get_file_info
+	s.AddTool(toolDefinitions[6], filesystem.GlobHandler(handler))          // glob
 
 	return s, nil
 }

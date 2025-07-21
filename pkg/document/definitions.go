@@ -7,7 +7,7 @@ import (
 func GetToolDefinitions() []mcp.Tool {
 	return []mcp.Tool{
 		mcp.NewTool("extract_text",
-			mcp.WithDescription("Extract text content from document files (.doc, .docx, .pdf)"),
+			mcp.WithDescription("Extract clean prose text from document files (.pdf, .docx, .pptx) - removes XML markup and formatting"),
 			mcp.WithReadOnlyHintAnnotation(true),
 			mcp.WithString("file_path",
 				mcp.Description("Path to the document file"),
