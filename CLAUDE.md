@@ -4,10 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Go project implementing three Model Context Protocol (MCP) servers for specialized file operations:
+This is a Go project implementing four Model Context Protocol (MCP) servers for specialized file operations:
 - **Document MCP Server**: Clean text extraction from PDF, Word, and PowerPoint files
 - **Excel MCP Server**: Spreadsheet reading and manipulation
 - **Filesystem MCP Server**: Safe multi-root filesystem access with shell-like navigation
+- **Outlook MCP Server**: Windows-only server for Outlook inbox access and message management
 
 ## Common Commands
 
@@ -20,6 +21,7 @@ task build
 task build-excel
 task build-fs  
 task build-document
+task build-outlook       # Windows only
 
 # Cross-platform release builds
 task build-release
@@ -31,11 +33,13 @@ task build-release
 task dev-excel
 task dev-fs        # Runs with current directory as base
 task dev-document
+task dev-outlook   # Windows only
 
 # Built and run servers
 task run-excel
 task run-fs        # Runs with current directory as base  
 task run-document
+task run-outlook   # Windows only
 ```
 
 ### Testing Commands
@@ -75,12 +79,14 @@ task mod-update
 cmd/                     # Entry points for each MCP server
 ├── document-mcp/        # Document server executable
 ├── excel-mcp/          # Excel server executable  
-└── fs-mcp/             # Filesystem server executable
+├── fs-mcp/             # Filesystem server executable
+└── outlook-mcp/        # Outlook server executable (Windows only)
 
 pkg/                     # Server implementations and shared code
 ├── document/            # Document processing (PDF, Word, PowerPoint)
 ├── excel/              # Excel manipulation with excelize
 ├── filesystem/         # Multi-root filesystem with CWD support
+├── outlook/            # Outlook message access (Windows only)
 └── server/             # Server setup and configuration
 ```
 
@@ -103,6 +109,12 @@ pkg/                     # Server implementations and shared code
 - Advanced security with path traversal prevention and root boundary enforcement
 - Platform-specific implementations (`platform_unix.go`, `platform_windows.go`)
 
+**Outlook Server** (`pkg/outlook/`):
+- Windows-only server for Outlook inbox access via COM objects
+- PowerShell REST API bridge with embedded script management
+- Message navigation, metadata retrieval, and full-text search
+- Process lifecycle management with graceful shutdown
+
 ### MCP Protocol Implementation
 All servers use `github.com/mark3labs/mcp-go v0.34.0` for JSON-RPC communication over stdio. Each server defines tools in `definitions.go` and implements handlers in `handlers.go`.
 
@@ -118,6 +130,9 @@ All servers use `github.com/mark3labs/mcp-go v0.34.0` for JSON-RPC communication
 
 # Document server (no arguments needed)  
 ./document-mcp
+
+# Outlook server (Windows only, no arguments needed)
+./outlook-mcp.exe
 ```
 
 ### Testing Strategy

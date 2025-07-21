@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project implements three Model Context Protocol (MCP) servers that provide specialized tools for working with different types of files and data. The architecture follows a modular design where each server focuses on a specific domain: document processing, Excel manipulation, and filesystem operations.
+This project implements four Model Context Protocol (MCP) servers that provide specialized tools for working with different types of files and data. The architecture follows a modular design where each server focuses on a specific domain: document processing, Excel manipulation, filesystem operations, and Outlook message management.
 
 ## High-Level Architecture
 
@@ -11,13 +11,19 @@ This project implements three Model Context Protocol (MCP) servers that provide 
 │                     MCP Client (Claude)                     │
 └─────────────────────┬───────────────────────────────────────┘
                       │ JSON-RPC over stdio
-          ┌───────────┼───────────┐
-          │           │           │
-    ┌─────▼─────┐ ┌───▼────┐ ┌────▼────────┐
-    │Document   │ │Excel   │ │Filesystem   │
-    │MCP Server │ │MCP     │ │MCP Server   │
-    │           │ │Server  │ │             │
-    └───────────┘ └────────┘ └─────────────┘
+          ┌───────────┼───────────┬───────────┐
+          │           │           │           │
+    ┌─────▼─────┐ ┌───▼────┐ ┌────▼────────┐ │
+    │Document   │ │Excel   │ │Filesystem   │ │
+    │MCP Server │ │MCP     │ │MCP Server   │ │
+    │           │ │Server  │ │             │ │
+    └───────────┘ └────────┘ └─────────────┘ │
+                                             │
+                                      ┌─────▼──────┐
+                                      │Outlook     │
+                                      │MCP Server  │
+                                      │(Windows)   │
+                                      └────────────┘
 ```
 
 ## Project Structure
@@ -27,12 +33,14 @@ my-mcp/
 ├── cmd/                        # Entry points for each MCP server
 │   ├── document-mcp/main.go    # Document server executable
 │   ├── excel-mcp/main.go       # Excel server executable
-│   └── fs-mcp/main.go          # Filesystem server executable
+│   ├── fs-mcp/main.go          # Filesystem server executable
+│   └── outlook-mcp/main.go     # Outlook server executable (Windows only)
 ├── pkg/                        # Shared packages and server implementations
 │   ├── common/                 # Common utilities (if any)
 │   ├── document/               # Document processing logic
 │   ├── excel/                  # Excel manipulation logic
 │   ├── filesystem/             # Filesystem operations logic
+│   ├── outlook/                # Outlook message management (Windows only)
 │   └── server/                 # Server setup and configuration
 ├── build/                      # Build artifacts
 ├── Taskfile.yaml              # Task automation (build, test, run)
@@ -142,6 +150,65 @@ change_directory("/Users/kevsmith/Documents")
 read_file("/etc/hosts")            # Absolute path within allowed roots
 ```
 
+### 4. Outlook MCP Server (`cmd/outlook-mcp`) - Windows Only
+
+**Purpose**: Provide access to Microsoft Outlook inbox for message navigation, metadata retrieval, and search
+
+**Key Files**:
+- `pkg/outlook/definitions.go` - Tool definitions for Outlook operations
+- `pkg/outlook/handlers.go` - Tool implementations for message access
+- `pkg/outlook/manager.go` - PowerShell process lifecycle and REST client
+- `pkg/outlook/types.go` - Type definitions for Outlook data structures
+- `pkg/outlook/scripts/outlook-server.ps1` - Embedded PowerShell REST API server
+- `pkg/server/outlook_setup.go` - Server configuration and setup
+
+**MCP Tools Provided**:
+- `list_messages` - List inbox messages with pagination (page size: 10)
+- `get_message` - Get full message details including metadata and preview
+- `get_message_body` - Get readable text content of a message (cooked)
+- `get_message_body_raw` - Get raw message body content (HTML and plain text)
+- `search_messages` - Search messages by subject, body, or sender
+
+**Architecture Components**:
+- **Embedded PowerShell Server**: REST API server embedded as Go binary resource
+- **COM Object Integration**: Direct access to Outlook via COM automation objects
+- **Process Lifecycle Management**: Automatic PowerShell server startup/shutdown
+- **REST API Bridge**: HTTP client in Go communicates with PowerShell REST endpoints
+- **Graceful Degradation**: Continues operation with error responses when Outlook unavailable
+
+**REST API Endpoints** (Internal PowerShell Server):
+- `GET /messages?page=N` - Paginated message listing
+- `GET /messages/{id}` - Full message details with preview
+- `GET /messages/{id}/body` - Readable message body text
+- `GET /messages/{id}/body/raw` - Raw message body (HTML/plain text)
+- `GET /search?q={query}` - Message search functionality
+
+**Security & Configuration**:
+- **Windows-Only Operation**: Runtime OS validation prevents non-Windows execution  
+- **Localhost Binding**: PowerShell REST API only accessible from localhost
+- **Configurable Port**: Uses `OUTLOOK_SERVER_PORT` environment variable (default: 8080)
+- **Process Isolation**: PowerShell server runs in separate process with proper cleanup
+- **Temporary Script Management**: Embedded script written to temp file and cleaned up
+
+**Usage Examples**:
+```bash
+# Start Outlook server (Windows only)
+outlook-mcp.exe
+
+# Configure custom port
+set OUTLOOK_SERVER_PORT=9090
+outlook-mcp.exe
+
+# Development mode
+task dev-outlook
+```
+
+**Error Handling**:
+- Server starts even when Outlook is unavailable
+- Clear error messages returned when Outlook COM objects cannot be accessed
+- Proper HTTP status codes and structured error responses
+- Graceful PowerShell process termination on shutdown
+
 ## Core Dependencies
 
 ### MCP Framework
@@ -182,6 +249,7 @@ task build           # Build all servers
 task build-excel     # Build Excel server only
 task build-fs        # Build filesystem server only  
 task build-document  # Build document server only
+task build-outlook   # Build Outlook server only (Windows)
 task build-release   # Cross-platform release builds
 ```
 
@@ -190,6 +258,7 @@ task build-release   # Cross-platform release builds
 task dev-excel       # Run Excel server in development mode
 task dev-fs          # Run filesystem server v2.0 in development mode with current directory
 task dev-document    # Run document server in development mode
+task dev-outlook     # Run Outlook server in development mode (Windows)
 ```
 
 ### Server Usage Examples
@@ -205,6 +274,9 @@ excel-mcp
 
 # Document Server - Clean text extraction from PDF, Word, PowerPoint
 document-mcp
+
+# Outlook Server - Windows Outlook message access
+outlook-mcp.exe
 ```
 
 ## Security Considerations

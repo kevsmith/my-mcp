@@ -72,9 +72,18 @@ tasks:
     generates:
       - "{{.BUILD_DIR}}/document-mcp"
 
+  build-outlook:
+    desc: Build the Outlook MCP server (Windows only)
+    deps: [fmt, vet]
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -o {{.BUILD_DIR}}/outlook-mcp.exe ./cmd/outlook-mcp
+    generates:
+      - "{{.BUILD_DIR}}/outlook-mcp.exe"
+
   build:
     desc: Build all MCP servers
-    deps: [build-excel, build-fs, build-document]
+    deps: [build-excel, build-fs, build-document, build-outlook]
 
   build-release:
     desc: Build release binaries for multiple platforms
@@ -93,6 +102,8 @@ tasks:
       - GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/document-mcp-linux-amd64 ./cmd/document-mcp
       - GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/document-mcp-darwin-arm64 ./cmd/document-mcp
       - GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/document-mcp-windows-amd64.exe ./cmd/document-mcp
+      # Outlook MCP server (Windows only)
+      - GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o {{.BUILD_DIR}}/release/outlook-mcp-windows-amd64.exe ./cmd/outlook-mcp
 
   install-excel:
     desc: Install Excel MCP server binary to $GOPATH/bin
@@ -112,9 +123,15 @@ tasks:
     cmds:
       - go install ./cmd/document-mcp
 
+  install-outlook:
+    desc: Install Outlook MCP server binary to $GOPATH/bin (Windows only)
+    deps: [build-outlook]
+    cmds:
+      - go install ./cmd/outlook-mcp
+
   install:
     desc: Install all MCP server binaries
-    deps: [install-excel, install-fs, install-document]
+    deps: [install-excel, install-fs, install-document, install-outlook]
 
   run-excel:
     desc: Run the Excel MCP server
@@ -134,6 +151,12 @@ tasks:
     cmds:
       - "{{.BUILD_DIR}}/document-mcp"
 
+  run-outlook:
+    desc: Run the Outlook MCP server (Windows only)
+    deps: [build-outlook]
+    cmds:
+      - "{{.BUILD_DIR}}/outlook-mcp.exe"
+
   dev-excel:
     desc: Run Excel MCP server in development mode
     cmds:
@@ -148,6 +171,11 @@ tasks:
     desc: Run Document MCP server in development mode
     cmds:
       - go run ./cmd/document-mcp
+
+  dev-outlook:
+    desc: Run Outlook MCP server in development mode (Windows only)
+    cmds:
+      - go run ./cmd/outlook-mcp
 
   check:
     desc: Run all checks (format, vet, test)
@@ -174,14 +202,17 @@ tasks:
       - echo "  task build-excel   - Build only Excel MCP server"
       - echo "  task build-fs      - Build only Filesystem MCP server"
       - echo "  task build-document - Build only Document MCP server"
+      - echo "  task build-outlook - Build only Outlook MCP server (Windows)"
       - echo ""
       - echo "Development:"
       - echo "  task dev-excel     - Run Excel server in development mode"
       - echo "  task dev-fs        - Run Filesystem server in development mode"
       - echo "  task dev-document  - Run Document server in development mode"
+      - echo "  task dev-outlook   - Run Outlook server in development mode (Windows)"
       - echo "  task run-excel     - Build and run Excel server"
       - echo "  task run-fs        - Build and run Filesystem server"
       - echo "  task run-document  - Build and run Document server"
+      - echo "  task run-outlook   - Build and run Outlook server (Windows)"
       - echo ""
       - echo "Testing:"
       - echo "  task test          - Run all tests"
