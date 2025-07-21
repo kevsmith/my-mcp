@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build linux
 
 package filesystem
 
@@ -9,7 +9,8 @@ import (
 
 func extractCreationTime(stat interface{}) time.Time {
 	if sysStat, ok := stat.(*syscall.Stat_t); ok {
-		return time.Unix(sysStat.Birthtimespec.Sec, sysStat.Birthtimespec.Nsec)
+		// Linux doesn't have birth time, use ctime (status change time) as fallback
+		return time.Unix(sysStat.Ctim.Sec, sysStat.Ctim.Nsec)
 	}
 	return time.Time{}
 }
