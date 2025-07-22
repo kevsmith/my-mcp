@@ -49,12 +49,18 @@ func TestNewManager(t *testing.T) {
 	if manager == nil {
 		t.Fatal("NewManager returned nil")
 	}
-	if manager.files == nil {
-		t.Error("files map not initialized")
+	if manager.cache == nil {
+		t.Error("cache not initialized")
 	}
 	if manager.currentSheet == nil {
 		t.Error("currentSheet map not initialized")
 	}
+	if manager.cleanupTicker == nil {
+		t.Error("cleanup ticker not started")
+	}
+
+	// Clean up
+	manager.Close()
 }
 
 func TestOpenFile(t *testing.T) {

@@ -10,7 +10,8 @@ import (
 )
 
 type Handler struct {
-	allowedRoots []string // Pre-cleaned absolute paths
+	allowedRoots []string // Pre-cleaned absolute paths (stored without trailing separators)
+	rootPrefixes []string // Pre-computed roots with trailing separators for efficient matching
 	currentWD    string   // Current working directory (absolute)
 }
 
@@ -19,8 +20,9 @@ func NewHandler(allowedRoots []string) (*Handler, error) {
 		return nil, fmt.Errorf("at least one allowed root directory is required")
 	}
 
-	// Clean and validate all allowed roots
+	// Clean and validate all allowed roots, pre-compute prefixes
 	var cleanRoots []string
+	var rootPrefixes []string
 	for _, root := range allowedRoots {
 		absRoot, err := filepath.Abs(filepath.Clean(root))
 		if err != nil {
@@ -37,6 +39,13 @@ func NewHandler(allowedRoots []string) (*Handler, error) {
 		}
 
 		cleanRoots = append(cleanRoots, absRoot)
+		
+		// Pre-compute prefix with trailing separator for efficient matching
+		rootPrefix := absRoot
+		if !strings.HasSuffix(rootPrefix, string(filepath.Separator)) {
+			rootPrefix += string(filepath.Separator)
+		}
+		rootPrefixes = append(rootPrefixes, rootPrefix)
 	}
 
 	// Start in the first allowed root
@@ -44,11 +53,13 @@ func NewHandler(allowedRoots []string) (*Handler, error) {
 
 	return &Handler{
 		allowedRoots: cleanRoots,
+		rootPrefixes: rootPrefixes,
 		currentWD:    initialWD,
 	}, nil
 }
 
 // Core security function - resolves and validates any path
+// Optimized with pre-cleaning and efficient validation
 func (h *Handler) resolvePath(inputPath string) (string, error) {
 	var resolvedPath string
 
@@ -69,26 +80,38 @@ func (h *Handler) resolvePath(inputPath string) (string, error) {
 		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
 	}
 
-	// Validate against allowed roots
-	if !h.isPathAllowed(absPath) {
+	// Optimized validation against allowed roots
+	if !h.isPathAllowedOptimized(absPath) {
 		return "", fmt.Errorf("access denied: path outside allowed roots")
 	}
 
 	return absPath, nil
 }
 
+// Legacy method for backward compatibility
 func (h *Handler) isPathAllowed(path string) bool {
+	return h.isPathAllowedOptimized(path)
+}
+
+// Optimized path validation with pre-computed prefixes
+func (h *Handler) isPathAllowedOptimized(path string) bool {
+	// Pre-clean path once
 	cleanPath := filepath.Clean(path)
-
+	
+	// First check for exact root matches (most common case)
 	for _, root := range h.allowedRoots {
-		cleanRoot := filepath.Clean(root)
-
-		// Path must be inside or equal to an allowed root
-		if strings.HasPrefix(cleanPath, cleanRoot+string(filepath.Separator)) ||
-			cleanPath == cleanRoot {
+		if cleanPath == root {
 			return true
 		}
 	}
+	
+	// Check if path is under any allowed root using pre-computed prefixes
+	for _, rootPrefix := range h.rootPrefixes {
+		if strings.HasPrefix(cleanPath, rootPrefix) {
+			return true
+		}
+	}
+	
 	return false
 }
 
@@ -136,6 +159,16 @@ func (h *Handler) GetDirectoryInfo() DirectoryInfo {
 
 // File operations with new logic
 func (h *Handler) ListDirectory(path *string) ([]FileInfo, error) {
+	// For backward compatibility, call the optimized version with no limits
+	result, err := h.ListDirectoryOptimized(path, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	return result.Files, nil
+}
+
+// ListDirectoryOptimized provides streaming directory listing with limits and pagination
+func (h *Handler) ListDirectoryOptimized(path *string, limit *int, skip *int) (*DirectoryListResult, error) {
 	var targetPath string
 	if path != nil && *path != "" {
 		resolvedPath, err := h.resolvePath(*path)
@@ -147,44 +180,117 @@ func (h *Handler) ListDirectory(path *string) ([]FileInfo, error) {
 		// Default to current working directory
 		targetPath = h.currentWD
 	}
+	
+	// Set default values for pagination
+	var skipCount, limitCount int
+	if skip != nil {
+		skipCount = *skip
+	}
+	if limit != nil {
+		limitCount = *limit
+	} else {
+		limitCount = -1 // No limit
+	}
 
-	entries, err := os.ReadDir(targetPath)
+	// Open directory for streaming read
+	dir, err := os.Open(targetPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read directory: %w", err)
+		return nil, fmt.Errorf("failed to open directory: %w", err)
 	}
-
+	defer dir.Close()
+	
+	// Use streaming read for better performance with large directories
 	var files []FileInfo
-	for _, entry := range entries {
-		info, err := entry.Info()
-		if err != nil {
-			continue
+	var totalCount int
+	var processedCount int
+	
+	// Read directory entries in batches for memory efficiency
+	batchSize := 1000
+	if limitCount > 0 && limitCount < batchSize {
+		batchSize = limitCount * 2 // Read a bit more than needed for sorting
+	}
+	
+	for {
+		entries, err := dir.ReadDir(batchSize)
+		if err != nil && err != io.EOF {
+			return nil, fmt.Errorf("failed to read directory entries: %w", err)
 		}
-
-		absPath := filepath.Join(targetPath, entry.Name())
-		fileInfo := FileInfo{
-			Name:         entry.Name(),
-			Path:         absPath,
-			RelativePath: h.getRelativePath(absPath),
-			IsDir:        entry.IsDir(),
-			Size:         info.Size(),
-			Modified:     info.ModTime(),
+		
+		if len(entries) == 0 {
+			break
 		}
+		
+		// Process entries in this batch
+		for _, entry := range entries {
+			totalCount++
+			
+			// Skip entries if needed for pagination
+			if processedCount < skipCount {
+				processedCount++
+				continue
+			}
+			
+			// Check limit after skipping
+			if limitCount > 0 && len(files) >= limitCount {
+				break
+			}
+			
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
 
-		if stat := info.Sys(); stat != nil {
-			fileInfo.Created = extractCreationTime(stat)
+			absPath := filepath.Join(targetPath, entry.Name())
+			fileInfo := FileInfo{
+				Name:         entry.Name(),
+				Path:         absPath,
+				RelativePath: h.getRelativePath(absPath),
+				IsDir:        entry.IsDir(),
+				Size:         info.Size(),
+				Modified:     info.ModTime(),
+			}
+
+			if stat := info.Sys(); stat != nil {
+				fileInfo.Created = extractCreationTime(stat)
+			}
+
+			files = append(files, fileInfo)
+			processedCount++
 		}
-
-		files = append(files, fileInfo)
+		
+		// Break if we've reached our limit
+		if limitCount > 0 && len(files) >= limitCount {
+			break
+		}
+		
+		// If we got fewer entries than batch size, we're at EOF
+		if len(entries) < batchSize {
+			break
+		}
 	}
 
+	// Sort the collected files
 	sort.Slice(files, func(i, j int) bool {
 		if files[i].IsDir != files[j].IsDir {
 			return files[i].IsDir
 		}
 		return files[i].Name < files[j].Name
 	})
+	
+	// Determine if there are more entries available
+	hasMore := false
+	if limitCount > 0 {
+		// Check if total count is greater than what we've returned + skipped
+		hasMore = totalCount > (len(files) + skipCount)
+	}
 
-	return files, nil
+	return &DirectoryListResult{
+		Files:         files,
+		TotalCount:    totalCount,
+		ReturnedCount: len(files),
+		Skipped:       skipCount,
+		HasMore:       hasMore,
+	}, nil
 }
 
 func (h *Handler) Glob(pattern string) (*GlobResult, error) {
@@ -203,7 +309,7 @@ func (h *Handler) Glob(pattern string) (*GlobResult, error) {
 
 	var files []FileInfo
 	for _, match := range matches {
-		if !h.isPathAllowed(match) {
+		if !h.isPathAllowedOptimized(match) {
 			continue // Skip matches outside allowed roots
 		}
 

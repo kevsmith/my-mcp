@@ -100,7 +100,12 @@ pkg/                     # Server implementations and shared code
 
 **Excel Server** (`pkg/excel/`):
 - Spreadsheet operations using `github.com/xuri/excelize/v2`
+- LRU cache with TTL for performance (configurable via env vars and CLI args)
 - Tools for reading cells, ranges, columns, rows, and sheets
+- Statistical analysis with `get_sheet_stats` tool
+- Formula extraction and translation with `explain_formula` tool
+- Header discovery for intelligent formula explanations
+- Memory management with manual cache flushing
 - State management for current sheet operations
 
 **Filesystem Server v2.0** (`pkg/filesystem/`):
@@ -125,8 +130,12 @@ All servers use `github.com/mark3labs/mcp-go v0.34.0` for JSON-RPC communication
 # Filesystem server with multiple roots
 ./fs-mcp /Users/kevsmith/repos /Users/kevsmith/Documents /etc
 
-# Excel server (no arguments needed)
+# Excel server with default caching (10 files, 5-minute TTL)
 ./excel-mcp
+
+# Excel server with custom cache configuration
+./excel-mcp --cache-size 20 --cache-ttl 10
+EXCEL_CACHE_MAX_SIZE=15 EXCEL_CACHE_TTL_MINUTES=3 ./excel-mcp
 
 # Document server (no arguments needed)  
 ./document-mcp
@@ -134,6 +143,26 @@ All servers use `github.com/mark3labs/mcp-go v0.34.0` for JSON-RPC communication
 # Outlook server (Windows only, no arguments needed)
 ./outlook-mcp.exe
 ```
+
+### Excel Server Features
+
+**Cache Management**:
+- LRU cache with TTL prevents memory bloat from large Excel files
+- Configurable via environment variables or command-line arguments
+- Manual cache flushing available via `flush_cache` tool
+- Automatic cleanup ticker removes expired entries every minute
+
+**Formula Intelligence**:
+- `explain_formula` tool converts cell references to human-readable names
+- Example: "=A5*B5" becomes "=quantity*cost" based on headers
+- Header discovery searches upward (columns) and leftward (rows) from data cells
+- Intelligent caching of header lookups for performance
+
+**Statistical Analysis**:
+- `get_sheet_stats` provides comprehensive sheet analytics
+- Data type classification (integer, number, text, boolean, date)
+- Non-empty cell counts and data boundaries
+- First/last data rows and columns identification
 
 ### Testing Strategy
 - Unit tests in `*_test.go` files alongside implementation

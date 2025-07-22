@@ -7,8 +7,8 @@ import (
 func TestGetToolDefinitions(t *testing.T) {
 	tools := GetToolDefinitions()
 
-	if len(tools) != 8 {
-		t.Errorf("Expected 8 tools, got %d", len(tools))
+	if len(tools) != 11 {
+		t.Errorf("Expected 11 tools, got %d", len(tools))
 	}
 
 	expectedTools := []string{
@@ -20,6 +20,9 @@ func TestGetToolDefinitions(t *testing.T) {
 		"set_current_sheet",
 		"get_column",
 		"get_row",
+		"get_sheet_stats",
+		"flush_cache",
+		"explain_formula",
 	}
 
 	for i, expectedName := range expectedTools {
@@ -56,6 +59,9 @@ func TestToolNamesAndDescriptions(t *testing.T) {
 		{5, "set_current_sheet", "Set the current active sheet for subsequent operations on a file"},
 		{6, "get_column", "Get all values in a specific column from an Excel spreadsheet"},
 		{7, "get_row", "Get all values in a specific row from an Excel spreadsheet"},
+		{8, "get_sheet_stats", "Get statistical summary of an Excel sheet including row count, column count, non-empty cells, and data types"},
+		{9, "flush_cache", "Flush the Excel file cache, closing all open files and freeing memory"},
+		{10, "explain_formula", "Extract and explain a specific formula from an Excel cell, translating cell references to human-readable names based on headers"},
 	}
 
 	for _, tc := range testCases {

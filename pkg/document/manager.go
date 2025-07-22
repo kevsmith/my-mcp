@@ -14,10 +14,97 @@ import (
 	"github.com/nguyenthenguyen/docx"
 )
 
+// Precompiled regex patterns for performance
+var (
+	xmlPattern        = regexp.MustCompile(`<[^>]*>`)
+	controlPattern    = regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
+	whitespacePattern = regexp.MustCompile(`\s+`)
+)
+
+// Magic number signatures for file format detection
+var (
+	pdfMagic  = []byte{0x25, 0x50, 0x44, 0x46}           // %PDF
+	zipMagic  = []byte{0x50, 0x4B, 0x03, 0x04}           // PK.. (ZIP-based formats)
+	oleDoc    = []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1} // Old DOC/PPT files
+)
+
+// DocumentType represents the detected file type
+type DocumentType int
+
+const (
+	DocumentTypeUnknown DocumentType = iota
+	DocumentTypePDF
+	DocumentTypeDOCX
+	DocumentTypePPTX
+	DocumentTypeDOC
+	DocumentTypePPT
+)
+
 type Manager struct{}
 
 func NewManager() *Manager {
 	return &Manager{}
+}
+
+// detectFileType detects file type using magic numbers for better accuracy
+func (m *Manager) detectFileType(filePath string) DocumentType {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return DocumentTypeUnknown
+	}
+	defer file.Close()
+
+	// Read first 512 bytes for magic number detection
+	buffer := make([]byte, 512)
+	n, err := file.Read(buffer)
+	if err != nil || n < 4 {
+		return DocumentTypeUnknown
+	}
+
+	// Check for PDF magic number
+	if len(buffer) >= len(pdfMagic) && bytesEqual(buffer[:len(pdfMagic)], pdfMagic) {
+		return DocumentTypePDF
+	}
+
+	// Check for ZIP-based formats (DOCX, PPTX)
+	if len(buffer) >= len(zipMagic) && bytesEqual(buffer[:len(zipMagic)], zipMagic) {
+		// Differentiate between DOCX and PPTX by checking internal structure
+		ext := strings.ToLower(filepath.Ext(filePath))
+		switch ext {
+		case ".docx":
+			return DocumentTypeDOCX
+		case ".pptx":
+			return DocumentTypePPTX
+		}
+		return DocumentTypeUnknown
+	}
+
+	// Check for older Office formats (DOC, PPT)
+	if len(buffer) >= len(oleDoc) && bytesEqual(buffer[:len(oleDoc)], oleDoc) {
+		ext := strings.ToLower(filepath.Ext(filePath))
+		switch ext {
+		case ".doc":
+			return DocumentTypeDOC
+		case ".ppt":
+			return DocumentTypePPT
+		}
+		return DocumentTypeUnknown
+	}
+
+	return DocumentTypeUnknown
+}
+
+// bytesEqual compares two byte slices
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 type DocumentInfo struct {
@@ -29,21 +116,33 @@ type DocumentInfo struct {
 }
 
 func (m *Manager) ExtractText(filePath string) (string, error) {
-	ext := strings.ToLower(filepath.Ext(filePath))
-
-	switch ext {
-	case ".pdf":
+	// Use magic number detection for more accurate file type identification
+	docType := m.detectFileType(filePath)
+	
+	switch docType {
+	case DocumentTypePDF:
 		return m.extractPDFText(filePath)
-	case ".docx":
+	case DocumentTypeDOCX:
 		return m.extractDocxText(filePath)
-	case ".pptx":
+	case DocumentTypePPTX:
 		return m.extractPptxText(filePath)
-	case ".doc":
+	case DocumentTypeDOC:
 		return "", fmt.Errorf("DOC files are not yet supported, please convert to DOCX format")
-	case ".ppt":
+	case DocumentTypePPT:
 		return "", fmt.Errorf("PPT files are not yet supported, please convert to PPTX format")
 	default:
-		return "", fmt.Errorf("unsupported file format: %s", ext)
+		// Fall back to extension-based detection if magic number fails
+		ext := strings.ToLower(filepath.Ext(filePath))
+		switch ext {
+		case ".pdf", ".docx", ".pptx":
+			return "", fmt.Errorf("file appears to be corrupted or invalid %s format", ext)
+		case ".doc":
+			return "", fmt.Errorf("DOC files are not yet supported, please convert to DOCX format")
+		case ".ppt":
+			return "", fmt.Errorf("PPT files are not yet supported, please convert to PPTX format")
+		default:
+			return "", fmt.Errorf("unsupported file format: %s", ext)
+		}
 	}
 }
 
@@ -72,8 +171,10 @@ func (m *Manager) extractPDFText(filePath string) (string, error) {
 	}
 	defer file.Close()
 
-	var text strings.Builder
 	totalPages := reader.NumPage()
+	// Pre-allocate string builder with estimated capacity (avg 2KB per page)
+	var text strings.Builder
+	text.Grow(totalPages * 2048)
 
 	for pageIndex := 1; pageIndex <= totalPages; pageIndex++ {
 		page := reader.Page(pageIndex)
@@ -167,16 +268,13 @@ func (m *Manager) extractCleanTextFromXML(xmlContent string) (string, error) {
 // cleanExtractedText performs additional cleanup on extracted text
 func (m *Manager) cleanExtractedText(text string) string {
 	// Clean up any remaining XML-like patterns first
-	xmlPattern := regexp.MustCompile(`<[^>]*>`)
 	text = xmlPattern.ReplaceAllString(text, "")
 
 	// Remove any remaining control characters
-	controlPattern := regexp.MustCompile(`[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`)
 	text = controlPattern.ReplaceAllString(text, "")
 
 	// Remove excessive whitespace (after removing XML tags)
-	re := regexp.MustCompile(`\s+`)
-	text = re.ReplaceAllString(text, " ")
+	text = whitespacePattern.ReplaceAllString(text, " ")
 
 	return strings.TrimSpace(text)
 }

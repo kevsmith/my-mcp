@@ -84,18 +84,46 @@ my-mcp/
 **Key Files**:
 - `pkg/excel/definitions.go` - Tool definitions
 - `pkg/excel/handlers.go` - Tool implementations  
-- `pkg/excel/manager.go` - Excel file management
+- `pkg/excel/manager.go` - Excel file management with LRU caching
+- `pkg/excel/cache.go` - LRU cache with TTL implementation
+- `pkg/excel/formulas.go` - Formula extraction and translation logic
 - `pkg/server/excel_setup.go` - Server configuration
 
 **Tools Provided**:
 - `enumerate_columns` - List all columns in a sheet
-- `enumerate_rows` - List all rows in a sheet
+- `enumerate_rows` - List all rows in a sheet  
 - `get_cell_value` - Get value of a specific cell
 - `get_range_values` - Get values from a cell range
 - `list_sheets` - List all sheets in a workbook
 - `set_current_sheet` - Set active sheet for operations
 - `get_column` - Get all values in a column
 - `get_row` - Get all values in a row
+- `get_sheet_stats` - Get statistical summary including row/column counts, data types, and boundaries
+- `flush_cache` - Manually flush the file cache to free memory
+- `explain_formula` - Extract and explain formulas with human-readable translations
+
+**Advanced Features**:
+- **LRU Cache with TTL**: Intelligent file caching (default: 10 files, 5-minute TTL)
+- **Configurable Caching**: Environment variables (`EXCEL_CACHE_MAX_SIZE`, `EXCEL_CACHE_TTL_MINUTES`) and command-line args (`--cache-size`, `--cache-ttl`)
+- **Formula Translation**: Converts cell references like "A5*B5" to "quantity*cost" based on headers
+- **Header Discovery**: Automatically finds column/row headers by searching upward/leftward from data cells
+- **Memory Management**: Automatic cleanup ticker and manual cache flushing
+
+**Cache Configuration**:
+```bash
+# Environment variables
+export EXCEL_CACHE_MAX_SIZE=20
+export EXCEL_CACHE_TTL_MINUTES=10
+
+# Command line arguments  
+./excel-mcp --cache-size 20 --cache-ttl 10
+```
+
+**Formula Explanation Example**:
+```bash
+# Input: Cell D2 contains "=A2*B2" where A1="Price", B1="Quantity", D1="Total"
+# Output: "=Price*Quantity" with label "Total"
+```
 
 **Dependencies**:
 - `github.com/xuri/excelize/v2` - Excel file processing

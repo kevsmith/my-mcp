@@ -8,7 +8,9 @@ type ChangeDirectoryArgs struct {
 }
 
 type ListDirectoryArgs struct {
-	Path *string `json:"path,omitempty"` // Optional, defaults to CWD
+	Path  *string `json:"path,omitempty"`  // Optional, defaults to CWD
+	Limit *int    `json:"limit,omitempty"` // Optional, limits number of entries returned
+	Skip  *int    `json:"skip,omitempty"`  // Optional, number of entries to skip for pagination
 }
 
 type GlobArgs struct {
@@ -42,4 +44,13 @@ type DirectoryInfo struct {
 type GlobResult struct {
 	Pattern string     `json:"pattern"`
 	Matches []FileInfo `json:"matches"`
+}
+
+// DirectoryListResult represents paginated directory listing results
+type DirectoryListResult struct {
+	Files       []FileInfo `json:"files"`
+	TotalCount  int        `json:"total_count"`  // Total number of entries in directory
+	ReturnedCount int      `json:"returned_count"` // Number of entries actually returned
+	Skipped     int        `json:"skipped"`       // Number of entries skipped
+	HasMore     bool       `json:"has_more"`      // Whether there are more entries available
 }

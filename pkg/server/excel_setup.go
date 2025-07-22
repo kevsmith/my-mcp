@@ -26,6 +26,11 @@ func ExcelSetup() *server.MCPServer {
 	mcpServer.AddTool(toolDefs[3], handlers.GetRangeValues)
 	mcpServer.AddTool(toolDefs[4], handlers.ListSheets)
 	mcpServer.AddTool(toolDefs[5], handlers.SetCurrentSheet)
+	mcpServer.AddTool(toolDefs[6], handlers.GetColumn)
+	mcpServer.AddTool(toolDefs[7], handlers.GetRow)
+	mcpServer.AddTool(toolDefs[8], handlers.GetSheetStats)
+	mcpServer.AddTool(toolDefs[9], handlers.FlushCache)
+	mcpServer.AddTool(toolDefs[10], handlers.ExplainFormula)
 
 	return mcpServer
 }

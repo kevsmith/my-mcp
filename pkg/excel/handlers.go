@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/kevsmith/my-mcp/pkg/shared"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -81,87 +82,65 @@ func (h *Handlers) EnumerateRows(ctx context.Context, request mcp.CallToolReques
 
 // GetCellValue handles the get_cell_value tool
 func (h *Handlers) GetCellValue(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	filePath := request.GetString("file_path", "")
-	if filePath == "" {
-		return mcp.NewToolResultError("file_path parameter is required"), nil
+	return h.withMiddleware(h.getCellValueHandler)(ctx, request)
+}
+
+// getCellValueHandler is the optimized implementation using middleware
+func (h *Handlers) getCellValueHandler(ctx context.Context, hctx *HandlerContext) (*mcp.CallToolResult, error) {
+	// Validate cell parameter
+	cell, errResult := ValidateRequiredParamWithExample(hctx, "cell", "A1")
+	if errResult != nil {
+		return errResult, nil
 	}
 
-	cell := request.GetString("cell", "")
-	if cell == "" {
-		return mcp.NewToolResultError("cell parameter is required (e.g., 'A1')"), nil
-	}
-
-	sheetName := request.GetString("sheet_name", "")
-
-	value, err := h.excelManager.GetCellValue(filePath, cell, sheetName)
+	// Get cell value using cached file and resolved sheet
+	value, err := hctx.Manager.GetCellValue(hctx.FilePath, cell, hctx.SheetName)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	// Get the actual sheet name used
-	file, err := h.excelManager.OpenFile(filePath)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	if sheetName == "" {
-		sheetName, err = h.excelManager.GetCurrentSheet(filePath, file)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-	}
-
-	return mcp.NewToolResultText(fmt.Sprintf("Cell %s in sheet %s: %s", cell, sheetName, value)), nil
+	// Return formatted response
+	return NewFormattedTextResponse("Cell %s in sheet %s: %s", cell, hctx.SheetName, value)
 }
 
 // GetRangeValues handles the get_range_values tool
 func (h *Handlers) GetRangeValues(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	filePath := request.GetString("file_path", "")
-	if filePath == "" {
-		return mcp.NewToolResultError("file_path parameter is required"), nil
+	return h.withMiddleware(h.getRangeValuesHandler)(ctx, request)
+}
+
+// getRangeValuesHandler is the optimized implementation using middleware
+func (h *Handlers) getRangeValuesHandler(ctx context.Context, hctx *HandlerContext) (*mcp.CallToolResult, error) {
+	// Validate range parameter
+	rangeRef, errResult := ValidateRequiredParamWithExample(hctx, "range", "A1:C3")
+	if errResult != nil {
+		return errResult, nil
 	}
 
-	rangeRef := request.GetString("range", "")
-	if rangeRef == "" {
-		return mcp.NewToolResultError("range parameter is required (e.g., 'A1:C3')"), nil
-	}
-
-	sheetName := request.GetString("sheet_name", "")
-
-	values, err := h.excelManager.GetRangeValues(filePath, rangeRef, sheetName)
+	// Get range values using cached file and resolved sheet
+	values, err := hctx.Manager.GetRangeValues(hctx.FilePath, rangeRef, hctx.SheetName)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	// Get the actual sheet name used
-	file, err := h.excelManager.OpenFile(filePath)
-	if err != nil {
-		return mcp.NewToolResultError(err.Error()), nil
-	}
-
-	if sheetName == "" {
-		sheetName, err = h.excelManager.GetCurrentSheet(filePath, file)
-		if err != nil {
-			return mcp.NewToolResultError(err.Error()), nil
-		}
-	}
-
-	return mcp.NewToolResultText(fmt.Sprintf("Range %s in sheet %s contains %d rows", rangeRef, sheetName, len(values))), nil
+	// Return formatted response
+	return NewFormattedTextResponse("Range %s in sheet %s contains %d rows", rangeRef, hctx.SheetName, len(values))
 }
 
 // ListSheets handles the list_sheets tool
 func (h *Handlers) ListSheets(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	filePath := request.GetString("file_path", "")
-	if filePath == "" {
-		return mcp.NewToolResultError("file_path parameter is required"), nil
-	}
+	return h.withMiddlewareNoSheet(h.listSheetsHandler)(ctx, request)
+}
 
-	sheets, err := h.excelManager.GetSheetList(filePath)
+// listSheetsHandler is the optimized implementation using middleware
+func (h *Handlers) listSheetsHandler(ctx context.Context, hctx *HandlerContext) (*mcp.CallToolResult, error) {
+	// Get sheets using cached file
+	sheets, err := hctx.Manager.GetSheetList(hctx.FilePath)
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Available sheets: %v", sheets)), nil
+	// Return formatted response
+	return NewFormattedTextResponse("Available sheets: %v", sheets)
 }
 
 // SetCurrentSheet handles the set_current_sheet tool
@@ -252,4 +231,78 @@ func (h *Handlers) GetRow(ctx context.Context, request mcp.CallToolRequest) (*mc
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Row %d in sheet %s: %v", int(rowNumber), sheetName, values)), nil
+}
+
+// GetSheetStats handles the get_sheet_stats tool
+func (h *Handlers) GetSheetStats(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	filePath := request.GetString("file_path", "")
+	if filePath == "" {
+		return mcp.NewToolResultError("file_path parameter is required"), nil
+	}
+
+	sheetName := request.GetString("sheet_name", "")
+
+	stats, err := h.excelManager.GetSheetStats(filePath, sheetName)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	// Get the actual sheet name used
+	file, err := h.excelManager.OpenFile(filePath)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	if sheetName == "" {
+		sheetName, err = h.excelManager.GetCurrentSheet(filePath, file)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+	}
+
+	// Format the response as JSON for better readability using optimized marshaling
+	statsJSON, err := shared.OptimizedMarshalIndent(stats, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to format stats: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Sheet '%s' statistics:\n%s", sheetName, string(statsJSON))), nil
+}
+
+// FlushCache handles the flush_cache tool
+func (h *Handlers) FlushCache(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	filesCleared, err := h.excelManager.FlushCache()
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Cache flushed successfully. %d files were closed and removed from cache.", filesCleared)), nil
+}
+
+// ExplainFormula handles the explain_formula tool
+func (h *Handlers) ExplainFormula(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	filePath := request.GetString("file_path", "")
+	if filePath == "" {
+		return mcp.NewToolResultError("file_path parameter is required"), nil
+	}
+
+	cell := request.GetString("cell", "")
+	if cell == "" {
+		return mcp.NewToolResultError("cell parameter is required (e.g., 'A1')"), nil
+	}
+
+	sheetName := request.GetString("sheet_name", "")
+
+	formula, err := h.excelManager.ExplainFormula(filePath, cell, sheetName)
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	// Format the response as JSON for better readability using optimized marshaling
+	formulaJSON, err := shared.OptimizedMarshalIndent(formula, "", "  ")
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to format formula: %v", err)), nil
+	}
+
+	return mcp.NewToolResultText(fmt.Sprintf("Formula explanation for cell %s:\n%s", cell, string(formulaJSON))), nil
 }

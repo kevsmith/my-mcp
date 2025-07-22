@@ -2,37 +2,161 @@ package excel
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/xuri/excelize/v2"
 )
 
 // Manager handles Excel file operations and maintains file state
 type Manager struct {
-	files        map[string]*excelize.File
-	currentSheet map[string]string
+	cache         *FileCache
+	currentSheet  map[string]string
+	cleanupTicker *time.Ticker
 }
 
 // NewManager creates a new Excel file manager
 func NewManager() *Manager {
-	return &Manager{
-		files:        make(map[string]*excelize.File),
+	config := GetCacheConfig()
+	cache := NewFileCache(config)
+
+	manager := &Manager{
+		cache:        cache,
 		currentSheet: make(map[string]string),
 	}
+
+	// Start cleanup ticker to remove expired entries every minute
+	manager.cleanupTicker = cache.StartCleanupTicker(time.Minute)
+
+	return manager
+}
+
+// NewManagerWithConfig creates a new Excel file manager with custom cache config
+func NewManagerWithConfig(config CacheConfig) *Manager {
+	cache := NewFileCache(config)
+
+	manager := &Manager{
+		cache:        cache,
+		currentSheet: make(map[string]string),
+	}
+
+	// Start cleanup ticker to remove expired entries every minute
+	manager.cleanupTicker = cache.StartCleanupTicker(time.Minute)
+
+	return manager
+}
+
+// Close closes the manager and cleans up resources
+func (m *Manager) Close() {
+	if m.cleanupTicker != nil {
+		m.cleanupTicker.Stop()
+	}
+	if m.cache != nil {
+		m.cache.Clear()
+	}
+}
+
+// FlushCache flushes the file cache and returns cache statistics
+func (m *Manager) FlushCache() (int, error) {
+	if m.cache == nil {
+		return 0, fmt.Errorf("cache not initialized")
+	}
+
+	// Get current cache size before clearing
+	cacheSize := m.cache.Size()
+
+	// Clear the cache (closes all files)
+	m.cache.Clear()
+
+	// Also clear current sheet mappings since files are closed
+	m.currentSheet = make(map[string]string)
+
+	return cacheSize, nil
+}
+
+// ExplainFormulas extracts and explains all formulas from all sheets
+func (m *Manager) ExplainFormulas(filePath string) ([]FormulaInfo, error) {
+	file, err := m.OpenFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %v", err)
+	}
+
+	extractor := NewFormulaExtractor(file)
+	return extractor.ExtractFormulas()
+}
+
+// ExplainFormulasFromSheet extracts and explains formulas from a specific sheet
+func (m *Manager) ExplainFormulasFromSheet(filePath, sheetName string) ([]FormulaInfo, error) {
+	file, err := m.OpenFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %v", err)
+	}
+
+	extractor := NewFormulaExtractor(file)
+	return extractor.ExtractFormulasFromSheet(sheetName)
+}
+
+// ExplainFormula extracts and explains a formula from a specific cell
+func (m *Manager) ExplainFormula(filePath, cell, sheetName string) (*FormulaInfo, error) {
+	file, err := m.OpenFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %v", err)
+	}
+
+	if sheetName == "" {
+		sheetName, err = m.GetCurrentSheet(filePath, file)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Get the formula from the cell
+	formula, err := file.GetCellFormula(sheetName, cell)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cell formula: %v", err)
+	}
+
+	if formula == "" {
+		return nil, fmt.Errorf("cell %s does not contain a formula", cell)
+	}
+
+	// Get the cell value
+	value, err := file.GetCellValue(sheetName, cell)
+	if err != nil {
+		value = ""
+	}
+
+	// Create extractor and translate the formula
+	extractor := NewFormulaExtractor(file)
+	translatedFormula := extractor.translateFormula(sheetName, formula)
+	label := extractor.getCellLabel(sheetName, cell)
+
+	return &FormulaInfo{
+		Sheet:             sheetName,
+		Cell:              cell,
+		Formula:           formula,
+		Value:             value,
+		TranslatedFormula: translatedFormula,
+		Label:             label,
+	}, nil
 }
 
 // OpenFile opens an Excel file and caches it for future operations
 func (m *Manager) OpenFile(filePath string) (*excelize.File, error) {
-	if file, exists := m.files[filePath]; exists {
+	// Try to get from cache first
+	if file, found := m.cache.Get(filePath); found {
 		return file, nil
 	}
 
+	// Open the file
 	file, err := excelize.OpenFile(filePath)
 	if err != nil {
 		return nil, err
 	}
 
-	m.files[filePath] = file
+	// Store in cache
+	m.cache.Put(filePath, file)
 	return file, nil
 }
 
@@ -179,9 +303,13 @@ func (m *Manager) GetRangeValues(filePath, rangeRef, sheetName string) ([][]stri
 		return nil, fmt.Errorf("invalid end cell: %v", err)
 	}
 
-	var values [][]string
+	// Pre-allocate slices with known capacity for performance
+	rowCount := endRow - startRow + 1
+	colCount := endCol - startCol + 1
+	values := make([][]string, 0, rowCount)
+	
 	for row := startRow; row <= endRow; row++ {
-		var rowValues []string
+		rowValues := make([]string, 0, colCount)
 		for col := startCol; col <= endCol; col++ {
 			cellName, _ := excelize.CoordinatesToCellName(col, row)
 			value, _ := file.GetCellValue(sheetName, cellName)
@@ -232,7 +360,8 @@ func (m *Manager) GetColumnValues(filePath, column, sheetName string) ([]string,
 		return nil, fmt.Errorf("failed to get rows: %v", err)
 	}
 
-	var values []string
+	// Pre-allocate slice with known capacity
+	values := make([]string, 0, len(rows))
 	for _, row := range rows {
 		if colNum <= len(row) {
 			values = append(values, row[colNum-1])
@@ -272,4 +401,136 @@ func (m *Manager) GetRowValues(filePath string, rowNum int, sheetName string) ([
 	}
 
 	return rows[rowNum-1], nil
+}
+
+// SheetStats represents statistical information about an Excel sheet
+type SheetStats struct {
+	RowCount      int            `json:"row_count"`
+	ColumnCount   int            `json:"column_count"`
+	NonEmptyRows  int            `json:"non_empty_rows"`
+	NonEmptyCells int            `json:"non_empty_cells"`
+	DataTypes     map[string]int `json:"data_types"`
+	FirstDataRow  int            `json:"first_data_row"`
+	LastDataRow   int            `json:"last_data_row"`
+	FirstDataCol  string         `json:"first_data_col"`
+	LastDataCol   string         `json:"last_data_col"`
+}
+
+// GetSheetStats returns statistical information about a sheet
+func (m *Manager) GetSheetStats(filePath, sheetName string) (*SheetStats, error) {
+	file, err := m.OpenFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %v", err)
+	}
+
+	if sheetName == "" {
+		sheetName, err = m.GetCurrentSheet(filePath, file)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	rows, err := file.GetRows(sheetName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rows: %v", err)
+	}
+
+	stats := &SheetStats{
+		RowCount:      len(rows),
+		ColumnCount:   0,
+		NonEmptyRows:  0,
+		NonEmptyCells: 0,
+		DataTypes:     make(map[string]int),
+		FirstDataRow:  0,
+		LastDataRow:   0,
+		FirstDataCol:  "",
+		LastDataCol:   "",
+	}
+
+	if len(rows) == 0 {
+		return stats, nil
+	}
+
+	maxColumns := 0
+	firstDataRowFound := false
+	var firstDataCol, lastDataCol int
+
+	for rowIdx, row := range rows {
+		if len(row) > maxColumns {
+			maxColumns = len(row)
+		}
+
+		hasData := false
+		rowFirstCol, rowLastCol := -1, -1
+
+		for colIdx, cell := range row {
+			if strings.TrimSpace(cell) != "" {
+				stats.NonEmptyCells++
+				hasData = true
+
+				if rowFirstCol == -1 {
+					rowFirstCol = colIdx
+				}
+				rowLastCol = colIdx
+
+				if !firstDataRowFound {
+					stats.FirstDataRow = rowIdx + 1
+					firstDataRowFound = true
+				}
+				stats.LastDataRow = rowIdx + 1
+
+				dataType := classifyDataType(cell)
+				stats.DataTypes[dataType]++
+			}
+		}
+
+		if hasData {
+			stats.NonEmptyRows++
+
+			if firstDataCol == 0 || (rowFirstCol >= 0 && rowFirstCol < firstDataCol) {
+				firstDataCol = rowFirstCol
+			}
+			if rowLastCol > lastDataCol {
+				lastDataCol = rowLastCol
+			}
+		}
+	}
+
+	stats.ColumnCount = maxColumns
+
+	if firstDataCol >= 0 {
+		stats.FirstDataCol, _ = excelize.ColumnNumberToName(firstDataCol + 1)
+	}
+	if lastDataCol >= 0 {
+		stats.LastDataCol, _ = excelize.ColumnNumberToName(lastDataCol + 1)
+	}
+
+	return stats, nil
+}
+
+// classifyDataType determines the data type of a cell value
+func classifyDataType(value string) string {
+	trimmed := strings.TrimSpace(value)
+
+	if trimmed == "" {
+		return "empty"
+	}
+
+	if _, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+		return "integer"
+	}
+
+	if _, err := strconv.ParseFloat(trimmed, 64); err == nil {
+		return "number"
+	}
+
+	if strings.ToLower(trimmed) == "true" || strings.ToLower(trimmed) == "false" {
+		return "boolean"
+	}
+
+	if len(trimmed) >= 8 && (strings.Contains(trimmed, "/") || strings.Contains(trimmed, "-")) {
+		return "date"
+	}
+
+	return "text"
 }

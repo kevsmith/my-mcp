@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/kevsmith/my-mcp/pkg/shared"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -12,15 +13,11 @@ import (
 func ChangeDirectoryHandler(handler *Handler) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var args ChangeDirectoryArgs
-		argBytes, err := json.Marshal(request.Params.Arguments)
-		if err != nil {
-			return mcp.NewToolResultError("Failed to marshal arguments"), nil
-		}
-		if err := json.Unmarshal(argBytes, &args); err != nil {
-			return mcp.NewToolResultError("Invalid arguments"), nil
+		if err := shared.OptimizedUnmarshalRequest(request, &args); err != nil {
+			return mcp.NewToolResultError("Invalid arguments: " + err.Error()), nil
 		}
 
-		err = handler.ChangeDirectory(args.Path)
+		err := handler.ChangeDirectory(args.Path)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to change directory: %v", err)), nil
 		}
@@ -40,12 +37,7 @@ func GetDirectoryInfoHandler(handler *Handler) func(ctx context.Context, request
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		dirInfo := handler.GetDirectoryInfo()
 
-		content, err := json.Marshal(dirInfo)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize directory info: %v", err)), nil
-		}
-
-		return mcp.NewToolResultText(string(content)), nil
+		return shared.OptimizedToolResultJSON(dirInfo)
 	}
 }
 
@@ -53,12 +45,8 @@ func GetDirectoryInfoHandler(handler *Handler) func(ctx context.Context, request
 func ListDirectoryHandler(handler *Handler) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var args ListDirectoryArgs
-		argBytes, err := json.Marshal(request.Params.Arguments)
-		if err != nil {
-			return mcp.NewToolResultError("Failed to marshal arguments"), nil
-		}
-		if err := json.Unmarshal(argBytes, &args); err != nil {
-			return mcp.NewToolResultError("Invalid arguments"), nil
+		if err := shared.OptimizedUnmarshalRequest(request, &args); err != nil {
+			return mcp.NewToolResultError("Invalid arguments: " + err.Error()), nil
 		}
 
 		files, err := handler.ListDirectory(args.Path)
@@ -66,12 +54,7 @@ func ListDirectoryHandler(handler *Handler) func(ctx context.Context, request mc
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to list directory: %v", err)), nil
 		}
 
-		content, err := json.Marshal(files)
-		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("Failed to serialize results: %v", err)), nil
-		}
-
-		return mcp.NewToolResultText(string(content)), nil
+		return shared.OptimizedToolResultJSON(files)
 	}
 }
 
