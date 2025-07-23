@@ -48,9 +48,9 @@ type GlobResult struct {
 
 // DirectoryListResult represents paginated directory listing results
 type DirectoryListResult struct {
-	Files       []FileInfo `json:"files"`
-	TotalCount  int        `json:"total_count"`  // Total number of entries in directory
-	ReturnedCount int      `json:"returned_count"` // Number of entries actually returned
-	Skipped     int        `json:"skipped"`       // Number of entries skipped
-	HasMore     bool       `json:"has_more"`      // Whether there are more entries available
+	Files         []FileInfo `json:"files"`
+	TotalCount    int        `json:"total_count"`    // Total number of entries in directory
+	ReturnedCount int        `json:"returned_count"` // Number of entries actually returned
+	Skipped       int        `json:"skipped"`        // Number of entries skipped
+	HasMore       bool       `json:"has_more"`       // Whether there are more entries available
 }

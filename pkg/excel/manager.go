@@ -307,7 +307,7 @@ func (m *Manager) GetRangeValues(filePath, rangeRef, sheetName string) ([][]stri
 	rowCount := endRow - startRow + 1
 	colCount := endCol - startCol + 1
 	values := make([][]string, 0, rowCount)
-	
+
 	for row := startRow; row <= endRow; row++ {
 		rowValues := make([]string, 0, colCount)
 		for col := startCol; col <= endCol; col++ {

@@ -73,7 +73,7 @@ func (fc *FileCache) Get(filePath string) (*excelize.File, bool) {
 		fc.mutex.RUnlock()
 		return nil, false
 	}
-	
+
 	// Check expiration with read lock first
 	now := time.Now()
 	if now.After(entry.expireAt) {
@@ -87,18 +87,18 @@ func (fc *FileCache) Get(filePath string) (*excelize.File, bool) {
 		fc.mutex.Unlock()
 		return nil, false
 	}
-	
+
 	// Cache hit - need to update LRU, so upgrade to write lock
 	file := entry.file
 	fc.mutex.RUnlock()
-	
+
 	fc.mutex.Lock()
 	// Double-check entry still exists and isn't expired
 	if entry, exists := fc.cache[filePath]; exists && !time.Now().After(entry.expireAt) {
 		fc.lruList.MoveToFront(entry.listNode)
 	}
 	fc.mutex.Unlock()
-	
+
 	return file, true
 }
 

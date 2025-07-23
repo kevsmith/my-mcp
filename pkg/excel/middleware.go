@@ -16,7 +16,7 @@ type HandlerContext struct {
 	Request   mcp.CallToolRequest
 	Manager   *Manager
 	FilePath  string
-	SheetName string // Resolved sheet name (never empty after middleware)
+	SheetName string      // Resolved sheet name (never empty after middleware)
 	File      interface{} // Cached file reference
 }
 

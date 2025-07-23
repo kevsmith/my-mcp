@@ -47,7 +47,6 @@ tasks:
 
   build-excel:
     desc: Build the Excel MCP server
-    deps: [fmt, vet]
     cmds:
       - mkdir -p {{.BUILD_DIR}}
       - go build -o {{.BUILD_DIR}}/excel-mcp ./cmd/excel-mcp
@@ -56,7 +55,6 @@ tasks:
 
   build-fs:
     desc: Build the Filesystem MCP server
-    deps: [fmt, vet]  
     cmds:
       - mkdir -p {{.BUILD_DIR}}
       - go build -o {{.BUILD_DIR}}/fs-mcp ./cmd/fs-mcp
@@ -65,7 +63,6 @@ tasks:
 
   build-document:
     desc: Build the Document MCP server
-    deps: [fmt, vet]
     cmds:
       - mkdir -p {{.BUILD_DIR}}
       - go build -o {{.BUILD_DIR}}/document-mcp ./cmd/document-mcp
@@ -74,7 +71,6 @@ tasks:
 
   build-outlook:
     desc: Build the Outlook MCP server (Windows only)
-    deps: [fmt, vet]
     cmds:
       - mkdir -p {{.BUILD_DIR}}
       - go build -o {{.BUILD_DIR}}/outlook-mcp.exe ./cmd/outlook-mcp
@@ -83,7 +79,12 @@ tasks:
 
   build:
     desc: Build all MCP servers
-    deps: [build-excel, build-fs, build-document, build-outlook]
+    deps: [fmt, vet, test]
+    cmds:
+      - task: build-excel
+      - task: build-fs
+      - task: build-document
+      - task: build-outlook
 
   build-release:
     desc: Build release binaries for multiple platforms

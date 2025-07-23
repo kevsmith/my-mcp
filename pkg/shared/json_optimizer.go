@@ -11,7 +11,7 @@ import (
 
 // JSONEncoder provides optimized JSON encoding with pooled resources
 type JSONEncoder struct {
-	bufferPool sync.Pool
+	bufferPool  sync.Pool
 	encoderPool sync.Pool
 }
 
@@ -37,19 +37,19 @@ func (je *JSONEncoder) Marshal(v interface{}) ([]byte, error) {
 	buf := je.bufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
 	defer je.bufferPool.Put(buf)
-	
+
 	encoder := json.NewEncoder(buf)
 	err := encoder.Encode(v)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Remove trailing newline added by json.Encoder.Encode
 	result := buf.Bytes()
 	if len(result) > 0 && result[len(result)-1] == '\n' {
 		result = result[:len(result)-1]
 	}
-	
+
 	// Make a copy since buf will be returned to pool
 	output := make([]byte, len(result))
 	copy(output, result)
@@ -61,20 +61,20 @@ func (je *JSONEncoder) MarshalIndent(v interface{}, prefix, indent string) ([]by
 	buf := je.bufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
 	defer je.bufferPool.Put(buf)
-	
+
 	encoder := json.NewEncoder(buf)
 	encoder.SetIndent(prefix, indent)
 	err := encoder.Encode(v)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Remove trailing newline added by json.Encoder.Encode
 	result := buf.Bytes()
 	if len(result) > 0 && result[len(result)-1] == '\n' {
 		result = result[:len(result)-1]
 	}
-	
+
 	// Make a copy since buf will be returned to pool
 	output := make([]byte, len(result))
 	copy(output, result)
@@ -97,13 +97,13 @@ func (je *JSONEncoder) UnmarshalRequest(request mcp.CallToolRequest, args interf
 			Offset: 0,
 		}
 	}
-	
+
 	// Marshal the request arguments first (this is required by the MCP framework)
 	argBytes, err := json.Marshal(request.Params.Arguments)
 	if err != nil {
 		return err
 	}
-	
+
 	// Unmarshal into the provided struct
 	return je.Unmarshal(argBytes, args)
 }

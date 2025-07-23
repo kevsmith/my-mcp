@@ -23,9 +23,9 @@ var (
 
 // Magic number signatures for file format detection
 var (
-	pdfMagic  = []byte{0x25, 0x50, 0x44, 0x46}           // %PDF
-	zipMagic  = []byte{0x50, 0x4B, 0x03, 0x04}           // PK.. (ZIP-based formats)
-	oleDoc    = []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1} // Old DOC/PPT files
+	pdfMagic = []byte{0x25, 0x50, 0x44, 0x46}             // %PDF
+	zipMagic = []byte{0x50, 0x4B, 0x03, 0x04}             // PK.. (ZIP-based formats)
+	oleDoc   = []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1} // Old DOC/PPT files
 )
 
 // DocumentType represents the detected file type
@@ -118,7 +118,7 @@ type DocumentInfo struct {
 func (m *Manager) ExtractText(filePath string) (string, error) {
 	// Use magic number detection for more accurate file type identification
 	docType := m.detectFileType(filePath)
-	
+
 	switch docType {
 	case DocumentTypePDF:
 		return m.extractPDFText(filePath)

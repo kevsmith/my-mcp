@@ -39,7 +39,7 @@ func NewHandler(allowedRoots []string) (*Handler, error) {
 		}
 
 		cleanRoots = append(cleanRoots, absRoot)
-		
+
 		// Pre-compute prefix with trailing separator for efficient matching
 		rootPrefix := absRoot
 		if !strings.HasSuffix(rootPrefix, string(filepath.Separator)) {
@@ -97,21 +97,21 @@ func (h *Handler) isPathAllowed(path string) bool {
 func (h *Handler) isPathAllowedOptimized(path string) bool {
 	// Pre-clean path once
 	cleanPath := filepath.Clean(path)
-	
+
 	// First check for exact root matches (most common case)
 	for _, root := range h.allowedRoots {
 		if cleanPath == root {
 			return true
 		}
 	}
-	
+
 	// Check if path is under any allowed root using pre-computed prefixes
 	for _, rootPrefix := range h.rootPrefixes {
 		if strings.HasPrefix(cleanPath, rootPrefix) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -180,7 +180,7 @@ func (h *Handler) ListDirectoryOptimized(path *string, limit *int, skip *int) (*
 		// Default to current working directory
 		targetPath = h.currentWD
 	}
-	
+
 	// Set default values for pagination
 	var skipCount, limitCount int
 	if skip != nil {
@@ -198,43 +198,43 @@ func (h *Handler) ListDirectoryOptimized(path *string, limit *int, skip *int) (*
 		return nil, fmt.Errorf("failed to open directory: %w", err)
 	}
 	defer dir.Close()
-	
+
 	// Use streaming read for better performance with large directories
 	var files []FileInfo
 	var totalCount int
 	var processedCount int
-	
+
 	// Read directory entries in batches for memory efficiency
 	batchSize := 1000
 	if limitCount > 0 && limitCount < batchSize {
 		batchSize = limitCount * 2 // Read a bit more than needed for sorting
 	}
-	
+
 	for {
 		entries, err := dir.ReadDir(batchSize)
 		if err != nil && err != io.EOF {
 			return nil, fmt.Errorf("failed to read directory entries: %w", err)
 		}
-		
+
 		if len(entries) == 0 {
 			break
 		}
-		
+
 		// Process entries in this batch
 		for _, entry := range entries {
 			totalCount++
-			
+
 			// Skip entries if needed for pagination
 			if processedCount < skipCount {
 				processedCount++
 				continue
 			}
-			
+
 			// Check limit after skipping
 			if limitCount > 0 && len(files) >= limitCount {
 				break
 			}
-			
+
 			info, err := entry.Info()
 			if err != nil {
 				continue
@@ -257,12 +257,12 @@ func (h *Handler) ListDirectoryOptimized(path *string, limit *int, skip *int) (*
 			files = append(files, fileInfo)
 			processedCount++
 		}
-		
+
 		// Break if we've reached our limit
 		if limitCount > 0 && len(files) >= limitCount {
 			break
 		}
-		
+
 		// If we got fewer entries than batch size, we're at EOF
 		if len(entries) < batchSize {
 			break
@@ -276,7 +276,7 @@ func (h *Handler) ListDirectoryOptimized(path *string, limit *int, skip *int) (*
 		}
 		return files[i].Name < files[j].Name
 	})
-	
+
 	// Determine if there are more entries available
 	hasMore := false
 	if limitCount > 0 {
